@@ -2,7 +2,7 @@ import chess
 import random
 from player import Player
 
-class Rando(Player):
+class Random_Player(Player):
 
 	def get_move(self, board):
 		''' make a completely random, legal move '''

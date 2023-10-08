@@ -5,27 +5,29 @@ import math
 import threading
 from functools import reduce
 from player import Player
-from rando import Rando
 
 class MCTS_Player(Player):
-	def __init__(self, color, turn_time=2.5, thread_count=16):
+	def __init__(self, color, turn_time=2.5, multithreading=True, thread_cap=8):
 		super(MCTS_Player, self).__init__(color)
 
 		# some constant to help with tweaking the confidence check
-		self.constant = math.sqrt(2)
+		self.constant = math.pi
 
 		# the amount of time given per turn, represented in seconds
 		self.turn_time = turn_time
 
-		# the max number of threads that can be used
-		self.thread_count = thread_count
+		# use multithreading?
+		self.multithreading = multithreading
+
+		# the max number of threads that can run at once
+		self.thread_cap = thread_cap
 
 	def get_confidence(self, move):
 		''' get the confidence of a move, represented as [wins, plays] '''
 		if move[1] == 0:
 			return float('inf')
 
-		return move[0] / (move[1] ** self.constant)
+		return move[0] / (move[1] * self.constant)
 
 	def get_performances(self, moves, board):
 		''' simulate the game for a bit, then return the performance ratios'''
@@ -66,22 +68,28 @@ class MCTS_Player(Player):
 
 	def get_move_threaded(self, board):
 		''' simulate the game for a bit with multithreading, then choose a move '''
-		threads = []
-
 		moves = list(board.legal_moves)
 
 		# threads can't return, so the return values will go here
 		thread_returns = []
 
-		# make a bunch of threads
-		while len(threads) < self.thread_count:
+		start_time = time.time()
+
+		# make a bunch of threads and time each turn
+		while time.time() < start_time + self.turn_time:
+			if threading.active_count() > self.thread_cap:
+				continue
+			# print("active_count:", threading.active_count())
+			# print("spawned threads:", spawned_threads)
 			thread = threading.Thread(target=self.get_performances_threaded, args=(moves, board, thread_returns))
 			thread.start()
-			threads.append(thread)
 
 		# let the threads finish
-		for thread in threads:
-			thread.join()
+		for thread in threading.enumerate():
+			try:
+				thread.join()
+			except:
+				pass
 
 		# [print(returns) for returns in thread_returns]
 
@@ -92,13 +100,14 @@ class MCTS_Player(Player):
 				move_ratios[i][0] += returns[i][0]
 				move_ratios[i][1] += returns[i][1]
 
+		# print(move_ratios)
+		# print(sum([ratio[1] for ratio in move_ratios]))
+
 		confidences = [self.get_confidence(move) for move in move_ratios]
 
-		print(move_ratios)
-		print(sum([ratio[1] for ratio in move_ratios]))
 		return moves[confidences.index(max(confidences))]
 
-	def get_move(self, board):
+	def get_move_single(self, board):
 		''' simulate the game for a bit, then choose a move '''
 		moves = list(board.legal_moves) # choose a move from here
 		move_ratios = self.get_performances(moves, board)
@@ -106,10 +115,16 @@ class MCTS_Player(Player):
 		# get a pure win/loss ratio for each of the moves
 		confidences = [self.get_confidence(move) for move in move_ratios]
 
+		# print(move_ratios)
+		# print(sum([ratio[1] for ratio in move_ratios]))
+
 		# return the first move with the highest confidence
-		print(move_ratios)
-		print(sum([ratio[1] for ratio in move_ratios]))
 		return moves[confidences.index(max(confidences))]
+
+	def get_move(self, board):
+		move = self.get_move_threaded(board) if self.multithreading else self.get_move_single(board)
+		print("Enter a move:", board.san(move))
+		return move
 
 def main():
 	board = chess.Board()
